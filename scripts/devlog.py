@@ -712,17 +712,17 @@ def cmd_scan(args) -> int:
                 print(message)
                 published["notion"] += 1 if ok else 0
             except RuntimeError as exc:
-                failures.append(f"{label} 노션 전파 실패: {exc}")
+                problems.append(f"{label} 노션 전파 실패: {exc}")
         if do_x:
             if published["x"] >= args.max_publish:
-                notes.append(f"{label}: X 전파 상한({args.max_publish}건)에 걸러 트윗 없이 기록만 남김")
+                notes.append(f"{label}: X 전파 상한({args.max_publish}건)에 걸려 트윗 없이 기록만 남김")
                 continue
             try:
                 ok, message = publish_tweet(target)
                 print(message)
                 published["x"] += 1 if ok else 0
             except RuntimeError as exc:
-                failures.append(f"{label} X 전파 실패: {exc}")
+                problems.append(f"{label} X 전파 실패: {exc}")
 
     if args.dry_run:
         print(f"\n[dry-run] 예정 {len(pending)}건. 파일·노션·X 모두 쓰지 않았습니다.")
