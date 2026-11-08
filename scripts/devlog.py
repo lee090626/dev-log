@@ -4,20 +4,27 @@
 PR 하나를 받아 (1) 변경점을 요약해 마크다운 기록을 만들고 (2) INDEX를 갱신하고
 (3) 노션 페이지에 블록을 붙이고 (4) X에 1줄 요약을 올립니다.
 
+`scan` 은 한 발 더 나아가 내 계정의 모든 레포(소유 + 기여)에서 최근 머지된 PR을 찾아
+아직 기록되지 않은 것만 위 파이프라인에 태웁니다. 정기 실행(cron)이 이것을 씁니다.
+
 표준 라이브러리만 씁니다. 설치할 패키지가 없습니다.
 
     python3 scripts/devlog.py entry  --repo Team-B1ND/dodamdodam-web --pr 223
     python3 scripts/devlog.py entry  --from-json fixture.json --dry-run
+    python3 scripts/devlog.py scan   --days 14 --dry-run
+    python3 scripts/devlog.py scan   --days 14 --publish all
     python3 scripts/devlog.py notion --file logs/2026/2026-11-08-pr-223.md
     python3 scripts/devlog.py tweet  --file logs/2026/2026-11-08-pr-223.md
 
 환경 변수
     GITHUB_TOKEN     PR을 읽을 때 (없으면 익명, 공개 레포만)
+    DEVLOG_USER      (선택) 스캔 대상 계정. 기본값은 GITHUB_REPOSITORY_OWNER → 토큰 주인
     LLM_API_KEY      (선택) 요약을 LLM으로. 없으면 diff 기반 자동 요약
     LLM_MODEL        (선택) 기본 gemini-2.0-flash
     NOTION_TOKEN     Notion 내부 통합 토큰
     NOTION_PAGE_ID   기록을 붙일 페이지 id
     X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET
+    GITHUB_STEP_SUMMARY  (있으면) 스캔 결과 요약을 Actions 화면에 남긴다
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -123,6 +131,179 @@ def fetch_pr(repo: str, number: str, token: str | None) -> dict:
                      "message": ((c.get("commit") or {}).get("message") or "").splitlines()[0][:160]}
                     for c in commits],
     }
+
+
+# ---------------------------------------------------------------- 여러 레포 스캔
+
+# develop→main 처럼 머지 커밋만 있는 PR은 기록 가치가 낮아 기본으로 건너뛴다.
+TRIVIAL_TITLE = re.compile(r"^(merge\b|develop$|dev$|main$|master$|release$|revert\b)", re.I)
+
+
+def is_trivial_merge(title: str) -> bool:
+    text = re.sub(r"^\[[^\]]*\]\s*", "", title or "").strip().lower()
+    return bool(TRIVIAL_TITLE.match(text))
+
+
+def resolve_login(token: str | None) -> str:
+    """스캔 대상 계정. Actions 설치 토큰은 /user 를 못 읽으므로 환경변수를 먼저 본다."""
+    for name in ("DEVLOG_USER", "GITHUB_REPOSITORY_OWNER"):
+        value = env(name)
+        if value and not value.endswith("[bot]"):
+            return value
+    try:
+        payload = github_api("/user", token)
+        if payload.get("login"):
+            return payload["login"]
+    except RuntimeError:
+        pass
+    try:
+        payload = github_api("/installation/repositories?per_page=1", token)
+        repos = payload.get("repositories") or []
+        if repos:
+            owner = (repos[0].get("owner") or {}).get("login")
+            if owner:
+                return owner
+    except RuntimeError:
+        pass
+    raise RuntimeError("GitHub 로그인을 확인하지 못했습니다. --user lee090626 처럼 지정해 주세요.")
+
+
+def _paged(path_template: str, token: str | None, limit: int = 500) -> list[dict]:
+    """{page} 자리에 페이지 번호를 넣어 목록을 끝까지 읽는다."""
+    items: list[dict] = []
+    page = 1
+    while len(items) < limit:
+        payload = github_api(path_template.format(page=page), token)
+        batch = payload.get("repositories") if isinstance(payload, dict) else payload
+        batch = batch or []
+        items.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return items
+
+
+def list_owned_repos(login: str, token: str | None) -> list[str]:
+    """계정이 소유한 레포. 설치 토큰이면 /user/repos 가 막혀 대체 경로를 쓴다."""
+    templates = (
+        "/user/repos?affiliation=owner&per_page=100&sort=pushed&page={page}",
+        f"/users/{login}/repos?per_page=100&type=owner&page={{page}}",
+        "/installation/repositories?per_page=100&page={page}",
+    )
+    for template in templates:
+        try:
+            repos = _paged(template, token)
+        except RuntimeError:
+            continue
+        names = sorted({repo["full_name"] for repo in repos
+                        if (repo.get("owner") or {}).get("login") == login
+                        and not repo.get("archived") and repo.get("full_name")})
+        if names:
+            return names
+    return []
+
+
+def search_merged_prs(login: str, since: str, token: str | None, limit: int = 300) -> list[dict]:
+    """내가 author 인 머지 PR 전체 (소유·기여 레포 무관)."""
+    query = urllib.parse.quote(f"is:pr is:merged author:{login} merged:>={since}", safe="")
+    items: list[dict] = []
+    page = 1
+    while len(items) < limit:
+        payload = github_api(
+            f"/search/issues?q={query}&per_page=100&page={page}&sort=updated&order=asc", token)
+        batch = payload.get("items") or []
+        items.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    found = []
+    for item in items:
+        repo = (item.get("repository_url") or "").split("/repos/")[-1]
+        if "/" not in repo:
+            continue
+        found.append({"repo": repo, "number": str(item.get("number")),
+                      "title": item.get("title") or "", "url": item.get("html_url") or "",
+                      "merged_at": item.get("closed_at") or ""})
+    return found
+
+
+def repo_merged_prs(repo: str, login: str, since: str, token: str | None) -> list[dict]:
+    """레포 하나의 최근 머지 PR 중 내가 author 인 것 (검색 API 보완·대체)."""
+    pulls = github_api(
+        f"/repos/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100", token)
+    found = []
+    for pull in pulls or []:
+        merged_at = pull.get("merged_at") or ""
+        if not merged_at or merged_at[:10] < since:
+            continue
+        if login and (pull.get("user") or {}).get("login") != login:
+            continue
+        found.append({"repo": repo, "number": str(pull.get("number")),
+                      "title": pull.get("title") or "", "url": pull.get("html_url") or "",
+                      "merged_at": merged_at})
+    return found
+
+
+def collect_merged_prs(login: str, since: str, token: str | None, owned: list[str]):
+    """검색 API + 소유 레포 직접 조회를 합쳐 중복을 제거한다."""
+    found: dict[tuple[str, str], dict] = {}
+    problems: list[str] = []
+    try:
+        for pr in search_merged_prs(login, since, token):
+            found[(pr["repo"].lower(), pr["number"])] = pr
+    except RuntimeError as exc:
+        problems.append(f"검색 API 실패: {exc}")
+    for repo in owned:
+        try:
+            for pr in repo_merged_prs(repo, login, since, token):
+                found.setdefault((pr["repo"].lower(), pr["number"]), pr)
+        except RuntimeError as exc:
+            problems.append(f"{repo} 조회 실패: {exc}")
+    return sorted(found.values(), key=lambda pr: pr.get("merged_at") or ""), problems
+
+
+def existing_entries() -> set[tuple[str, str]]:
+    """이미 기록된 (레포, PR번호). front-matter 의 project/pr 또는 source URL 로 판별."""
+    known: set[tuple[str, str]] = set()
+    if not LOG_DIR.exists():
+        return known
+    for path in LOG_DIR.rglob("*.md"):
+        if path.name == "INDEX.md":
+            continue
+        try:
+            head = path.read_text(encoding="utf-8")[:4000]
+        except OSError:
+            continue
+        project = re.search(r"^project:\s*(.+)$", head, re.M)
+        source = re.search(r"^source:\s*(\S+)$", head, re.M)
+        number = re.search(r"^pr:\s*(\d+)\s*$", head, re.M)
+        repo = project.group(1).strip() if project else ""
+        num = number.group(1) if number else ""
+        if (not repo or not num) and source:
+            match = re.search(r"github\.com/([^/]+/[^/]+)/pull/(\d+)", source.group(1))
+            if match:
+                repo = repo or match.group(1)
+                num = num or match.group(2)
+        if repo and num:
+            known.add((repo.lower(), num))
+    return known
+
+
+def entry_path(date: str, number: str, title: str, repo: str) -> Path:
+    """저장 경로. 같은 날 같은 번호의 다른 레포 PR과 부딪히면 레포 이름을 덧붙인다."""
+    year_dir = LOG_DIR / date[:4]
+    stem = f"{date}-pr-{number}-{slugify(title)}"
+    candidate = year_dir / f"{stem}.md"
+    if candidate.exists():
+        head = candidate.read_text(encoding="utf-8")[:4000]
+        project = re.search(r"^project:\s*(.+)$", head, re.M)
+        number_in = re.search(r"^pr:\s*(\d+)\s*$", head, re.M)
+        same = (project and number_in
+                and project.group(1).strip().lower() == repo.lower()
+                and number_in.group(1) == str(number))
+        if not same:
+            candidate = year_dir / f"{stem}-{slugify(repo.split('/')[-1], 24)}.md"
+    return candidate
 
 
 # ---------------------------------------------------------------- 기술 판별
@@ -397,6 +578,24 @@ def update_index(date: str, project: str, label: str, rel_path: str) -> None:
 # ---------------------------------------------------------------- entry 커맨드
 
 
+def build_entry(pr: dict, no_llm: bool = False, date: str | None = None) -> tuple[str, str, str]:
+    """(markdown, 날짜, 제목). LLM 키가 없거나 실패하면 자동 요약으로."""
+    date = date or (pr.get("merged_at") or "")[:10] or time.strftime("%Y-%m-%d")
+    tech = detect_tech(pr["files"])
+    summary = None if no_llm else llm_summary(pr, tech)
+    if not summary:
+        summary = auto_summary(pr, tech)
+    return (render_entry(pr, summary, tech, date, "auto"), date,
+            summary.get("title") or pr["title"])
+
+
+def save_entry(path: Path, markdown: str, date: str, repo: str, number: str) -> None:
+    """파일을 쓰고 INDEX에 한 줄 붙인다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(markdown, encoding="utf-8")
+    update_index(date, repo, f"PR #{number} · 자동", path.relative_to(LOG_DIR).as_posix())
+
+
 def cmd_entry(args) -> int:
     token = env("GITHUB_TOKEN")
     if args.from_json:
@@ -407,17 +606,8 @@ def cmd_entry(args) -> int:
             return 2
         pr = fetch_pr(args.repo, str(args.pr), token)
 
-    date = args.date or (pr.get("merged_at") or "")[:10] or time.strftime("%Y-%m-%d")
-    tech = detect_tech(pr["files"])
-    summary = llm_summary(pr, tech) if not args.no_llm else None
-    generated = "auto"
-    if not summary:
-        summary = auto_summary(pr, tech)
-
-    markdown = render_entry(pr, summary, tech, date, generated)
-    year_dir = LOG_DIR / date[:4]
-    filename = f"{date}-pr-{pr['number']}-{slugify(summary.get('title') or pr['title'])}.md"
-    target = year_dir / filename
+    markdown, date, title = build_entry(pr, no_llm=args.no_llm, date=args.date)
+    target = entry_path(date, pr["number"], title, pr["repo"])
 
     if args.dry_run:
         print(markdown)
@@ -428,13 +618,133 @@ def cmd_entry(args) -> int:
         print(f"[devlog] 이미 기록되어 있습니다: {target.relative_to(ROOT)}")
         return 0
 
-    year_dir.mkdir(parents=True, exist_ok=True)
-    target.write_text(markdown, encoding="utf-8")
-    rel = target.relative_to(LOG_DIR).as_posix()
-    label = f"PR #{pr['number']} · 자동"
-    update_index(date, pr["repo"], label, rel)
+    save_entry(target, markdown, date, pr["repo"], pr["number"])
     print(f"[devlog] 기록 생성: {target.relative_to(ROOT)}")
     return 0
+
+
+# ---------------------------------------------------------------- scan 커맨드
+
+
+def write_step_summary(lines: list[str]) -> None:
+    """Actions 화면($GITHUB_STEP_SUMMARY)에 남길 요약. 없으면 조용히 넘진다."""
+    path = env("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
+def cmd_scan(args) -> int:
+    """내 모든 레포에서 최근 머지된 PR을 찾아, 아직 기록되지 않은 것만 기록·전파한다."""
+    token = env("GITHUB_TOKEN")
+    login = args.user or resolve_login(token)
+    days = max(int(args.days), 1)
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    publish = (args.publish or "none").lower()
+    if publish not in ("all", "notion", "x", "none"):
+        print(f"--publish 는 all | notion | x | none 중 하나입니다. (받은 값: {publish})", file=sys.stderr)
+        return 2
+    do_notion = publish in ("all", "notion")
+    do_x = publish in ("all", "x")
+
+    owned = list_owned_repos(login, token)
+    prs, problems = collect_merged_prs(login, since, token, owned)
+    known = existing_entries()
+
+    pending: list[dict] = []
+    already, merges = 0, 0
+    for pr in prs:
+        if (pr["repo"].lower(), pr["number"]) in known:
+            already += 1
+            continue
+        if not args.include_merges and is_trivial_merge(pr["title"]):
+            merges += 1
+            continue
+        pending.append(pr)
+
+    overflow = pending[args.limit:]
+    if overflow:
+        pending = pending[:args.limit]
+
+    print(f"[devlog] 대상: {login} · 최근 {days}일 (merged >= {since})")
+    print(f"[devlog] 소유 레포 {len(owned)}개 · 머지 PR {len(prs)}건 → 기록 대상 {len(pending)}건 "
+          f"(이미 기록 {already} · 머지커밋 {merges}"
+          + (f" · 상한 넘어 다음으로 {len(overflow)}" if overflow else "") + ")")
+    for pr in pending:
+        print(f"  · {pr['repo']}#{pr['number']} ({pr['merged_at'][:10]}) {pr['title'][:70]}")
+
+    created: list[Path] = []
+    failures: list[str] = []
+    notes: list[str] = []
+    published = {"notion": 0, "x": 0}
+
+    for index, pr in enumerate(pending, 1):
+        label = f"{pr['repo']}#{pr['number']}"
+        try:
+            detail = fetch_pr(pr["repo"], pr["number"], token)
+        except RuntimeError as exc:
+            failures.append(f"{label} PR 조회 실패: {exc}")
+            print(f"[devlog] {label} 조회 실패: {exc}", file=sys.stderr)
+            continue
+        markdown, date, title = build_entry(detail, no_llm=args.no_llm)
+        target = entry_path(date, detail["number"], title, detail["repo"])
+        if args.dry_run:
+            if index == 1:
+                print(f"\n[dry-run] {label} → {target.relative_to(ROOT)}")
+                print(markdown)
+            continue
+        save_entry(target, markdown, date, detail["repo"], detail["number"])
+        created.append(target)
+        print(f"[devlog] 기록 생성: {target.relative_to(ROOT)}")
+        if do_notion:
+            try:
+                ok, message = publish_notion(target)
+                print(message)
+                published["notion"] += 1 if ok else 0
+            except RuntimeError as exc:
+                failures.append(f"{label} 노션 전파 실패: {exc}")
+        if do_x:
+            if published["x"] >= args.max_publish:
+                notes.append(f"{label}: X 전파 상한({args.max_publish}건)에 걸러 트윗 없이 기록만 남김")
+                continue
+            try:
+                ok, message = publish_tweet(target)
+                print(message)
+                published["x"] += 1 if ok else 0
+            except RuntimeError as exc:
+                failures.append(f"{label} X 전파 실패: {exc}")
+
+    if args.dry_run:
+        print(f"\n[dry-run] 예정 {len(pending)}건. 파일·노션·X 모두 쓰지 않았습니다.")
+    else:
+        print(f"[devlog] 스캔 완료: 기록 {len(created)}건 · 노션 {published['notion']}건 "
+              f"· X {published['x']}건")
+    for problem in problems:
+        print(f"[devlog] 경고: {problem}", file=sys.stderr)
+    for note in notes:
+        print(f"[devlog] 참고: {note}")
+    for failure in failures:
+        print(f"[devlog] 실패: {failure}", file=sys.stderr)
+
+    lines = ["### dev-log scan", "",
+             f"- 계정: `{login}` · 최근 {days}일",
+             f"- 소유 레포 {len(owned)}개 · 머지 PR {len(prs)}건",
+             f"- 새 기록 {len(created)}건 · 노션 {published['notion']}건 · X {published['x']}건"]
+    if args.dry_run:
+        lines.insert(2, "- 모드: dry-run (아무것도 쓰지 않음)")
+    if pending:
+        lines += ["", "| PR | 머지일 | 제목 |", "| --- | --- | --- |"]
+        for pr in pending:
+            lines.append(f"| {pr['repo']}#{pr['number']} | {pr['merged_at'][:10]} "
+                         f"| {pr['title'][:80].replace('|', '/')} |")
+    for failure in failures:
+        lines.append(f"\n- ⚠️ {failure}")
+    write_step_summary(lines)
+    return 1 if failures else 0
 
 
 # ---------------------------------------------------------------- 노션
@@ -507,29 +817,32 @@ def read_entry(path: Path) -> tuple[dict, str, str]:
     return meta, title, body
 
 
-def cmd_notion(args) -> int:
+def publish_notion(path: Path, page_id: str | None = None,
+                   dry_run: bool = False) -> tuple[bool, str]:
+    """기록 파일을 노션 페이지 아래에 블록으로 붙인다. (전파함?, 메시지)"""
     token = env("NOTION_TOKEN")
-    page_id = args.page_id or env("NOTION_PAGE_ID")
-    path = Path(args.file)
+    page_id = page_id or env("NOTION_PAGE_ID")
     meta, title, body = read_entry(path)
-    if not token or not page_id:
-        print("[devlog] NOTION_TOKEN 또는 NOTION_PAGE_ID 가 없어 노션 전파를 건너뜁니다.", file=sys.stderr)
-        return 0
     blocks = [{"object": "block", "type": "heading_1", "heading_1": {"rich_text": [rt(title)]}},
               {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [rt(
                   f"{meta.get('project', '')} · PR #{meta.get('pr', '')} · {meta.get('date', '')} · "
                   f"{meta.get('source', '')}")]}},
               {"object": "block", "type": "divider", "divider": {}}]
     blocks += md_to_blocks(body, limit=80)
-    if args.dry_run:
-        print(json.dumps({"page_id": page_id, "children": blocks[:3]}, ensure_ascii=False, indent=2))
-        print(f"[dry-run] 블록 {len(blocks)}개를 {page_id}에 추가 예정", file=sys.stderr)
-        return 0
-    status, payload = http_json(
+    if dry_run:
+        return False, f"[dry-run] 블록 {len(blocks)}개를 {page_id or 'NOTION_PAGE_ID'}에 추가 예정"
+    if not token or not page_id:
+        return False, "[devlog] NOTION_TOKEN 또는 NOTION_PAGE_ID 가 없어 노션 전파를 건너뜁니다."
+    status, _ = http_json(
         "PATCH", f"https://api.notion.com/v1/blocks/{page_id}/children", token,
         {"children": blocks},
         {"Notion-Version": "2022-06-28"})
-    print(f"[devlog] 노션 블록 {len(blocks)}개 추가 (HTTP {status})")
+    return True, f"[devlog] 노션 블록 {len(blocks)}개 추가 (HTTP {status})"
+
+
+def cmd_notion(args) -> int:
+    ok, message = publish_notion(Path(args.file), args.page_id, args.dry_run)
+    print(message, file=sys.stdout if ok else sys.stderr)
     return 0
 
 
@@ -596,23 +909,25 @@ def build_tweet(meta: dict, title: str, body: str, max_len: int = 275) -> str:
     return head + tail
 
 
-def cmd_tweet(args) -> int:
-    path = Path(args.file)
+def publish_tweet(path: Path, dry_run: bool = False) -> tuple[bool, str]:
+    """기록을 X 1줄 요약으로 올린다. (전파함?, 메시지·본문)"""
     meta, title, body = read_entry(path)
     text = build_tweet(meta, title, body)
-    if args.dry_run:
-        print(text)
-        print(f"[dry-run] {len(text)}자", file=sys.stderr)
-        return 0
+    if dry_run:
+        return False, text
     keys = {k: env(k) for k in ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET")}
     if not all(keys.values()):
-        print("[devlog] X 시크릿이 없어 트윗을 건너뜁니다.", file=sys.stderr)
-        return 0
+        return False, "[devlog] X 시크릿이 없어 트윗을 건너뜁니다."
     url = "https://api.x.com/2/tweets"
     auth = oauth1_header("POST", url, keys["X_API_KEY"], keys["X_API_SECRET"],
                          keys["X_ACCESS_TOKEN"], keys["X_ACCESS_SECRET"])
     status, payload = http_json("POST", url, None, {"text": text}, {"Authorization": auth})
-    print(f"[devlog] 트윗 전송 (HTTP {status}) {payload.get('data', {}).get('id', '')}")
+    return True, f"[devlog] 트윗 전송 (HTTP {status}) {payload.get('data', {}).get('id', '')}"
+
+
+def cmd_tweet(args) -> int:
+    ok, message = publish_tweet(Path(args.file), args.dry_run)
+    print(message, file=sys.stdout if ok else sys.stderr)
     return 0
 
 
@@ -631,6 +946,21 @@ def main(argv: list[str]) -> int:
     p_entry.add_argument("--no-llm", action="store_true", help="LLM 없이 자동 요약만")
     p_entry.add_argument("--dry-run", action="store_true", help="파일을 쓰지 않고 출력만")
     p_entry.set_defaults(func=cmd_entry)
+
+    p_scan = sub.add_parser("scan", help="모든 레포의 최근 머지 PR을 찾아 기록한다")
+    p_scan.add_argument("--days", type=int, default=14, help="최근 N일 (기본 14)")
+    p_scan.add_argument("--user", help="스캔할 GitHub 계정 (기본: DEVLOG_USER → 저장소 소유자)")
+    p_scan.add_argument("--limit", type=int, default=25, help="한 번에 기록할 최대 PR 수 (기본 25)")
+    p_scan.add_argument("--publish", default="none",
+                        help="전파 채널: all | notion | x | none (기본 none)")
+    p_scan.add_argument("--max-publish", type=int, default=5,
+                        help="한 번에 X에 올릴 최대 건수 (기본 5)")
+    p_scan.add_argument("--include-merges", action="store_true",
+                        help="develop→main 같은 머지 PR도 기록")
+    p_scan.add_argument("--no-llm", action="store_true", help="LLM 없이 자동 요약만")
+    p_scan.add_argument("--dry-run", action="store_true",
+                        help="파일·노션·X에 쓰지 않고 미리보기만")
+    p_scan.set_defaults(func=cmd_scan)
 
     p_notion = sub.add_parser("notion", help="기록을 노션 페이지에 붙인다")
     p_notion.add_argument("--file", required=True)

@@ -14,6 +14,8 @@
 
 세 곳에 동시에 쌓입니다.
 
+그리고 **매일 밤 23:00(KST)** 정기 스캔이 돌아, 내 계정의 **모든 레포**(소유 + 기여)에서 그날까지 머지된 PR 중 아직 기록되지 않은 것을 자동으로 찾아 같은 파이프라인에 태웁니다. 머지를 깜빡해도 기록이 비지 않습니다.
+
 > 노션 미러: `포트폴리오 > 🚀 개발 트러블슈팅 & Dev Log` (같은 내용의 요약본이 쌓이는 곳)
 
 ---
@@ -51,13 +53,17 @@ generated: auto            # auto = 파이프라인 생성, manual = 직접 작�
 ## 파이프라인 구조
 
 ```
+[정기 스캔]  매일 23:00 KST (cron)
+        │
+        │  내 레포 전체에서 최근 14일 머지 PR 조회 → 이미 기록된 것 제외
+        ▼
 [프로젝트 레포]  PR merged  (또는 Actions에서 수동 실행)
         │
         │  repository_dispatch  (templates/target-repo-workflow.yml)
         ▼
 [dev-log / .github/workflows/auto-devlog.yml]   ← templates/auto-devlog.yml 을 옮겨서 활성화
         │
-        ├─ 1. PR 메타데이터 · 파일별 diff · 커밋 수집   (scripts/devlog.py entry)
+        ├─ 1. PR 메타데이터 · 파일별 diff · 커밋 수집   (scripts/devlog.py entry / scan)
         ├─ 2. 문제 / 원인 / 해결 / 포인트 요약          (LLM 키가 있으면 LLM, 없으면 diff 기반 자동 요약)
         ├─ 3. logs/{연도}/{날짜}-{슬러그}.md 작성 + INDEX 갱신 → 커밋 & push
         ├─ 4. Notion '개발 트러블슈팅 & Dev Log' 페이지에 블록 추가  (scripts/devlog.py notion)
@@ -65,6 +71,35 @@ generated: auto            # auto = 파이프라인 생성, manual = 직접 작�
 ```
 
 3번은 항상 실행되고, 4·5번은 해당 시크릿이 등록되어 있을 때만 실행됩니다(없으면 조용히 건너뜀).
+
+---
+
+## 전체 레포 자동 스캔
+
+`scan` 은 PR 하나가 아니라 **내 계정 전체**를 훑습니다.
+
+1. 소유 레포 목록 + 검색 API(`is:pr is:merged author:lee090626 merged:>=YYYY-MM-DD`)로 최근 N일(기본 14일) 머지 PR을 모읍니다. 검색 API가 막히면 소유 레포를 하나씩 직접 조회해 보완합니다.
+2. `logs/` 의 front-matter(`project` + `pr`)와 대조해 **이미 기록된 PR은 건너뜁니다.** (여러 번 돌아도 중복이 생기지 않음)
+3. 남은 PR만 `entry` 와 같은 경로로 기록하고, `--publish` 에 따라 노션·X로 전파합니다.
+
+```bash
+python3 scripts/devlog.py scan --days 14 --dry-run          # 무엇이 기록될지 미리보기 (아무것도 쓰지 않음)
+python3 scripts/devlog.py scan --days 14                    # 기록만 (파일 + INDEX)
+python3 scripts/devlog.py scan --days 14 --publish all      # 기록 + 노션 + X
+```
+
+| 옵션 | 기본값 | 의미 |
+| --- | --- | --- |
+| `--days N` | 14 | 최근 N일 안에 머지된 PR만 |
+| `--publish` | `none` | `all` / `notion` / `x` / `none` |
+| `--limit N` | 25 | 한 번에 기록할 최대 PR 수 (나머지는 다음 실행) |
+| `--max-publish N` | 5 | 한 번에 X에 올릴 최대 건수 — 밀린 기록이 한꺼번에 트윗되는 것을 막음 |
+| `--include-merges` | 꺼짐 | `merge: develop` 같은 머지 커밋만 있는 PR도 기록 |
+| `--user` | 저장소 소유자 | 스캔할 계정 (다른 계정으로 돌려볼 때) |
+
+기본으로 `merge: develop`, `Develop`, `develop` 처럼 머지 커밋만 있는 PR은 건너뜁니다. develop→main 머지가 기록으로 쌓이면 내용이 비어서입니다.
+
+> **스캔이 다른 레포까지 보려면 `DEVLOG_GITHUB_TOKEN` 이 필요합니다.** GitHub Actions의 기본 `github.token` 은 이 저장소(dev-log)만 읽을 수 있습니다. 그 토큰만으로 스캔하면 조직 레포(B1ND·PartTrip 등)의 PR은 **한 건도 보이지 않습니다.**
 
 ---
 
@@ -110,18 +145,25 @@ generated: auto            # auto = 파이프라인 생성, manual = 직접 작�
 
 ## 자동화 붙이는 법
 
-### 0. 워크플로우 파일을 `.github/workflows/`로 옮기기
+### 0. 워크플로우 파일을 `.github/workflows/`로 옮기기 (유일하게 손으로 해야 하는 단계)
 
-`templates/auto-devlog.yml`을 `.github/workflows/auto-devlog.yml`로 옮기면 파이프라인이 켜집니다.
-GitHub 웹에서 **Add file → Create new file** → 파일 이름 `.github/workflows/auto-devlog.yml` → `templates/auto-devlog.yml` 내용 붙여넣기 → Commit.
-(이 저장소를 만든 도구가 GitHub Actions 파일 쓰기 권한을 가지고 있지 않아서, 이 한 파일만 손으로 옮겨야 합니다. 한 번만 하면 됩니다.)
+`templates/auto-devlog.yml`을 `.github/workflows/auto-devlog.yml`로 옮기면 파이프라인(정기 스캔 포함)이 켜집니다. GitHub App 토큰에는 Actions 파일 쓰기 권한이 없어 이 한 파일만 직접 옮겨야 합니다.
+
+1. <https://github.com/lee090626/dev-log/edit/main/.github/workflows/auto-devlog.yml> 를 연다 (없으면 같은 경로로 **Add file → Create new file**).
+2. <https://raw.githubusercontent.com/lee090626/dev-log/main/templates/auto-devlog.yml> 내용을 전부 복사해 그대로 붙여넣는다.
+3. **Commit changes** → main에 커밋.
+4. Actions 탭 → **auto-devlog** → **Run workflow** (mode: `scan`) 으로 한 번 돌려 확인.
+
+템플릿이 바뀌면(예: 스캔 옵션이 늘어나면) 같은 방법으로 다시 붙여넣으면 됩니다. 이 저장소를 만든 도구는 `templates/` 만 고칠 수 있습니다.
 
 ### 1. 이 저장소의 Actions 권한 켜기
 
 `Settings → Actions → General → Workflow permissions`에서 **Read and write permissions**를 선택합니다.
 (워크플로우가 기록을 커밋해야 하므로 필요)
 
-### 2. 감시할 프로젝트 레포에 트리거 한 장 붙이기
+### 2. (선택) 감시할 프로젝트 레포에 트리거 한 장 붙이기
+
+정기 스캔이 매일 알아서 찾아가므로 **이 단계는 이제 선택**입니다. 머지되자마자 바로 기록되고 싶은 레포에만 붙이면 됩니다.
 
 `templates/target-repo-workflow.yml`을 프로젝트 레포의 `.github/workflows/devlog-dispatch.yml`로 복사하고,
 그 레포 `Settings → Secrets and variables → Actions`에 `DEVLOG_DISPATCH_TOKEN`(dev-log에 `contents: write`가 있는 PAT)을 등록합니다.
@@ -157,18 +199,33 @@ jobs:
 | `X_ACCESS_TOKEN` / `X_ACCESS_SECRET` | 같은 앱의 Access Token / Secret (`Read and write` 권한) | developer.x.com |
 | `LLM_API_KEY` | (선택) 요약을 LLM으로. 없으면 diff 기반 자동 요약 | Gemini API 키 등 |
 | `LLM_MODEL` | (선택) 기본 `gemini-2.0-flash` | |
-| `DEVLOG_GITHUB_TOKEN` | (선택) 다른 레포의 비공개 PR까지 읽을 때 쓰는 PAT | 없으면 `github.token` 사용 |
+| `DEVLOG_GITHUB_TOKEN` | **스캔에 필요** — 내 다른 레포(비공개 포함)의 PR까지 읽는 PAT | Settings → Developer settings → Personal access tokens (classic, `repo` + `read:org`) |
 
 ---
 
 ## 수동 실행
 
-Actions 탭에서 **auto-devlog → Run workflow**를 누르고 `source_repo`(예: `Team-B1ND/dodamdodam-web`)와 `pr_number`(예: `223`)를 넣으면 그 PR 하나가 기록으로 만들어집니다.
+### Actions 탭에서
 
-로컬에서도 같은 스크립트를 씁니다.
+Actions 탭 → **auto-devlog** → **Run workflow**
+
+- **mode `scan`** (기본): 최근 `days`일 머지 PR을 전부 훑어 새것만 기록. `days` 기본 14.
+- **mode `single`**: PR 하나만 기록. `source_repo`(예: `Team-B1ND/dodamdodam-web`)와 `pr_number`(예: `223`)를 넣습니다.
+- `publish` 로 이번 실행의 전파 채널을 고릅니다(`all` / `notion` / `x` / `none`).
+
+### 로컬에서
 
 ```bash
 export GITHUB_TOKEN=<repo 읽기 권한 토큰>
+
+# 0) 내 모든 레포에서 최근 14일 머지 PR 중 기록 안 된 것 찾기 (dry-run: 아무것도 쓰지 않음)
+python3 scripts/devlog.py scan --days 14 --dry-run
+
+# 0-1) 실제로 기록 + INDEX 갱신 (노션·X는 안 씀)
+python3 scripts/devlog.py scan --days 14
+
+# 0-2) 기록 + 노션 + X (X는 한 번에 최대 5건)
+python3 scripts/devlog.py scan --days 14 --publish all --max-publish 5
 
 # 1) PR 하나를 기록으로
 python3 scripts/devlog.py entry --repo Team-B1ND/dodamdodam-web --pr 223
@@ -191,6 +248,11 @@ python3 scripts/devlog.py tweet  --file logs/2026/2026-11-08-pr-223.md
 
 - `entry` (수집 → 요약 → 마크다운 생성 → INDEX 갱신): **실제 머지된 PR 1건으로 실행해 검증 완료**
   (예: `Team-B1ND/dodamdodam-web#218` → `logs/2026/2026-10-28-pr-218-*.md` 생성, INDEX 한 줄 추가 확인)
+- `scan`: **실제 계정 데이터로 검증 완료** (2026-11-08, 익명 토큰=공개 레포만)
+  - `scan --days 14 --dry-run`: 소유 레포 8개 · 머지 PR 2건 → `merge: develop` 1건 제외 → 1건(`dodamdodam-web#218`) 기록 예정 확인
+  - 실제 기록 실행: 파일 1건 생성 + INDEX 한 줄 추가 확인, 같은 명령 재실행 시 **기록 대상 0건**(중복 방지 동작)
+  - `--include-merges`: 머지 커밋 PR(`#221`)까지 대상에 들어오는 것 확인
+  - 비공개 레포는 익명 토큰에서 안 보였습니다. Actions에서는 `DEVLOG_GITHUB_TOKEN` 으로 볼 수 있습니다.
 - `notion` · `tweet`: 코드는 완성되어 있으나 **토큰이 없어 실제 호출은 아직 검증하지 못했습니다.**
   첫 실행 시 Actions 로그로 결과를 확인하고, 필요하면 `--dry-run`으로 본문만 먼저 봅니다.
 - LLM 요약은 키가 없을 때를 대비해 **diff 기반 자동 요약으로 항상 동작**합니다.

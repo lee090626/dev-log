@@ -4,29 +4,43 @@ name: auto-devlog
 # 이 파일은 템플릿입니다. 아래 경로로 옮기면 파이프라인이 켜집니다.
 #     .github/workflows/auto-devlog.yml
 # GitHub 웹: Add file → Create new file → 파일 이름에 위 경로를 입력 → 이 내용 붙여넣기 → Commit
-# (이 저장소를 초기화한 도구가 Actions 파일 쓰기 권한이 없어 이 한 파일만 직접 옮겨야 합니다)
+# (이 저장소를 만든 도구의 토큰에 Actions 파일 쓰기 권한이 없어 이 한 파일만 직접 옮겨야 합니다)
 # ────────────────────────────────────────────────────────────────
-# 하나의 PR을 dev-log 기록으로 바꾸고, 노션·X로 전파합니다.
-#
-# 실행 경로 3가지
-#   1) 이 저장소(dev-log)의 PR이 머지됐을 때
-#   2) 다른 프로젝트 레포가 repository_dispatch(devlog)로 호출했을 때
+# 실행 경로 4가지
+#   1) 매일 23:00 KST 정기 스캔 (schedule) — 내 모든 레포의 최근 머지 PR을 훑어 새것만 기록
+#   2) 이 저장소(dev-log)의 PR이 머지됐을 때
+#   3) 다른 프로젝트 레포가 repository_dispatch(devlog)로 호출했을 때
 #      (templates/target-repo-workflow.yml 을 그 레포에 붙이면 자동)
-#   3) Actions 탭에서 수동 실행 (source_repo + pr_number 입력)
+#   4) Actions 탭에서 수동 실행 — mode: scan(기본) 또는 single
+#
+# 스캔은 토큰이 읽을 수 있는 레포만 봅니다. 조직 레포·비공개 레포까지 훑으려면
+# Settings → Secrets and variables → Actions 의 DEVLOG_GITHUB_TOKEN 에
+# repo 읽기 권한이 있는 PAT를 넣어 두세요. (없으면 github.token 으로 이 저장소만 보임)
 
 on:
+  schedule:
+    - cron: '0 14 * * *'          # 매일 23:00 KST (UTC 14:00)
   pull_request:
     types: [closed]
   repository_dispatch:
     types: [devlog]
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'scan = 내 모든 레포 최근 PR 스캔 / single = PR 하나만 기록'
+        type: choice
+        options: [scan, single]
+        default: scan
+      days:
+        description: 'scan 모드: 최근 며칠을 볼지 (기본 14)'
+        required: false
+        default: '14'
       source_repo:
-        description: '분석할 레포지토리 (owner/name). 비우면 이 저장소'
+        description: 'single 모드: 분석할 레포지토리 (owner/name). 비우면 이 저장소'
         required: false
         default: ''
       pr_number:
-        description: 'PR 번호'
+        description: 'single 모드: PR 번호'
         required: false
         default: ''
       publish:
@@ -35,13 +49,17 @@ on:
         default: 'all'
 
 concurrency:
-  group: devlog-record
+  group: devlog
   cancel-in-progress: false
 
 jobs:
-  record:
-    # 닫기만 하고 머지하지 않은 PR은 기록하지 않습니다.
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+  # ────────────────────────────────────────────────────────────────
+  # 정기·수동 스캔: 아직 기록되지 않은 머지 PR을 찾아 기록 → 노션 → X
+  # ────────────────────────────────────────────────────────────────
+  scan:
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'single')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -51,6 +69,72 @@ jobs:
       - name: Checkout dev-log
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 스캔 → 기록 생성 → (publish) 노션·X. 여러 건을 한 번에 처리한다.
+      - name: Scan merged PRs
+        env:
+          DEVLOG_USER: ${{ vars.DEVLOG_USER || github.repository_owner }}
+          GITHUB_TOKEN: ${{ secrets.DEVLOG_GITHUB_TOKEN || github.token }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          INPUT_DAYS: ${{ github.event.inputs.days }}
+          INPUT_PUBLISH: ${{ github.event.inputs.publish }}
+        run: |
+          set -eu
+          DAYS="${INPUT_DAYS:-14}"
+          PUBLISH="${INPUT_PUBLISH:-all}"
+          echo "스캔: 최근 ${DAYS}일 · 전파 ${PUBLISH}"
+          python3 scripts/devlog.py scan --days "$DAYS" --publish "$PUBLISH"
+
+      - name: Commit and push
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          if [ -z "$(git status --porcelain -- logs)" ]; then
+            echo "::notice::새 기록이 없습니다."
+            exit 0
+          fi
+          git config user.name  "dev-log"
+          git config user.email "dev-log@users.noreply.github.com"
+          git add logs
+          git commit -m "log: 자동 스캔 $(date -u +%Y-%m-%d)"
+          git push origin "HEAD:${DEFAULT_BRANCH}" || {
+            git pull --rebase --autostash origin "${DEFAULT_BRANCH}"
+            git push origin "HEAD:${DEFAULT_BRANCH}"
+          }
+
+  # ────────────────────────────────────────────────────────────────
+  # PR 하나만 기록 (머지 이벤트·dispatch·수동 single)
+  # ────────────────────────────────────────────────────────────────
+  record:
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'single')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout dev-log
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Setup Python
@@ -114,6 +198,7 @@ jobs:
           ENTRY_FILE: ${{ steps.gen.outputs.entry_file }}
           REPO: ${{ steps.target.outputs.repo }}
           PR: ${{ steps.target.outputs.pr }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -eu
           git config user.name  "dev-log"
@@ -121,7 +206,10 @@ jobs:
           git add logs
           git commit -m "log(${REPO}): #${PR} $(basename "$ENTRY_FILE" .md)" \
                      -m "자동 생성: https://github.com/${REPO}/pull/${PR}"
-          git push
+          git push origin "HEAD:${DEFAULT_BRANCH}" || {
+            git pull --rebase --autostash origin "${DEFAULT_BRANCH}"
+            git push origin "HEAD:${DEFAULT_BRANCH}"
+          }
 
       # ------------------------------------------------------------ 노션
       - name: Publish to Notion
