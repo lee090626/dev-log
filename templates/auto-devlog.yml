@@ -21,7 +21,7 @@ name: auto-devlog
 
 on:
   schedule:
-    - cron: '*/15 * * * *'        # 15분마다 자동 감지 및 전파 (UTC = KST 동일 분)
+    - cron: '0 * * * *'          # 1시간마다 자동 감지 및 전파 (매시간 정각)
   pull_request:
     types: [closed]
   repository_dispatch:
