@@ -654,6 +654,9 @@ def cmd_scan(args) -> int:
     owned = list_owned_repos(login, token)
     prs, problems = collect_merged_prs(login, since, token, owned)
     known = existing_entries()
+    by_repo: dict[str, int] = {}
+    for pr in prs:
+        by_repo[pr["repo"]] = by_repo.get(pr["repo"], 0) + 1
 
     pending: list[dict] = []
     already, merges = 0, 0
@@ -674,6 +677,9 @@ def cmd_scan(args) -> int:
     print(f"[devlog] 소유 레포 {len(owned)}개 · 머지 PR {len(prs)}건 → 기록 대상 {len(pending)}건 "
           f"(이미 기록 {already} · 머지커밋 {merges}"
           + (f" · 상한 넘어 다음으로 {len(overflow)}" if overflow else "") + ")")
+    if by_repo:
+        ordered = sorted(by_repo.items(), key=lambda item: (-item[1], item[0]))
+        print("[devlog] 기여 레포: " + ", ".join(f"{name}({count})" for name, count in ordered))
     for pr in pending:
         print(f"  · {pr['repo']}#{pr['number']} ({pr['merged_at'][:10]}) {pr['title'][:70]}")
 
@@ -734,6 +740,10 @@ def cmd_scan(args) -> int:
              f"- 계정: `{login}` · 최근 {days}일",
              f"- 소유 레포 {len(owned)}개 · 머지 PR {len(prs)}건",
              f"- 새 기록 {len(created)}건 · 노션 {published['notion']}건 · X {published['x']}건"]
+    if by_repo:
+        lines.append("- 기여 레포: " + ", ".join(
+            f"{name} ({count})" for name, count in
+            sorted(by_repo.items(), key=lambda item: (-item[1], item[0]))))
     if args.dry_run:
         lines.insert(2, "- 모드: dry-run (아무것도 쓰지 않음)")
     if pending:
