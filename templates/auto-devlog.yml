@@ -125,7 +125,8 @@ jobs:
 
       # ------------------------------------------------------------ 노션
       - name: Publish to Notion
-        if: steps.gen.outputs.entry_file != '' && (github.event.inputs.publish == '' || github.event.inputs.publish == 'all' || github.event.inputs.publish == 'notion')
+        # publish 입력이 none/x 면 건너뜀 (PR·dispatch 실행에는 입력이 없어 항상 실행)
+        if: steps.gen.outputs.entry_file != '' && github.event.inputs.publish != 'none' && github.event.inputs.publish != 'x'
         continue-on-error: true
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -134,7 +135,7 @@ jobs:
 
       # ------------------------------------------------------------ X
       - name: Publish to X
-        if: steps.gen.outputs.entry_file != '' && (github.event.inputs.publish == '' || github.event.inputs.publish == 'all' || github.event.inputs.publish == 'x')
+        if: steps.gen.outputs.entry_file != '' && github.event.inputs.publish != 'none' && github.event.inputs.publish != 'notion'
         continue-on-error: true
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
