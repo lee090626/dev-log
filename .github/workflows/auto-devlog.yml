@@ -1,0 +1,156 @@
+name: auto-devlog
+
+# ────────────────────────────────────────────────────────────────
+# 이 파일은 템플릿입니다. 아래 경로로 옮기면 파이프라인이 켜집니다.
+#     .github/workflows/auto-devlog.yml
+# GitHub 웹: Add file → Create new file → 파일 이름에 위 경로를 입력 → 이 내용 붙여넣기 → Commit
+# (이 저장소를 초기화한 도구가 Actions 파일 쓰기 권한이 없어 이 한 파일만 직접 옮겨야 합니다)
+# ────────────────────────────────────────────────────────────────
+# 하나의 PR을 dev-log 기록으로 바꾸고, 노션·X로 전파합니다.
+#
+# 실행 경로 3가지
+#   1) 이 저장소(dev-log)의 PR이 머지됐을 때
+#   2) 다른 프로젝트 레포가 repository_dispatch(devlog)로 호출했을 때
+#      (templates/target-repo-workflow.yml 을 그 레포에 붙이면 자동)
+#   3) Actions 탭에서 수동 실행 (source_repo + pr_number 입력)
+
+on:
+  pull_request:
+    types: [closed]
+  repository_dispatch:
+    types: [devlog]
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: '분석할 레포지토리 (owner/name). 비우면 이 저장소'
+        required: false
+        default: ''
+      pr_number:
+        description: 'PR 번호'
+        required: false
+        default: ''
+      publish:
+        description: '전파 채널: all | notion | x | none'
+        required: false
+        default: 'all'
+
+concurrency:
+  group: devlog-record
+  cancel-in-progress: false
+
+jobs:
+  record:
+    # 닫기만 하고 머지하지 않은 PR은 기록하지 않습니다.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout dev-log
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # ------------------------------------------------------------ 대상 PR 결정
+      - name: Resolve target PR
+        id: target
+        env:
+          EVENT: ${{ github.event_name }}
+          EVENT_REPO: ${{ github.repository }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          DISPATCH_REPO: ${{ github.event.client_payload.source_repo }}
+          DISPATCH_PR: ${{ github.event.client_payload.pr_number }}
+          INPUT_REPO: ${{ github.event.inputs.source_repo }}
+          INPUT_PR: ${{ github.event.inputs.pr_number }}
+        run: |
+          set -eu
+          case "$EVENT" in
+            pull_request)        REPO="${EVENT_REPO}"; PR="${EVENT_PR}" ;;
+            repository_dispatch) REPO="${DISPATCH_REPO:-$EVENT_REPO}"; PR="${DISPATCH_PR:-}" ;;
+            workflow_dispatch)   REPO="${INPUT_REPO:-$EVENT_REPO}"; PR="${INPUT_PR:-}" ;;
+            *) echo "지원하지 않는 이벤트: $EVENT"; exit 1 ;;
+          esac
+          if [ -z "$PR" ]; then
+            echo "::error::PR 번호가 없습니다. source_repo 와 pr_number 를 함께 넣어 주세요."
+            exit 1
+          fi
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "대상: $REPO#$PR"
+
+      # ------------------------------------------------------------ 기록 생성
+      - name: Generate entry
+        id: gen
+        env:
+          GITHUB_TOKEN: ${{ secrets.DEVLOG_GITHUB_TOKEN || github.token }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: |
+          set -eu
+          python3 scripts/devlog.py entry \
+            --repo "${{ steps.target.outputs.repo }}" \
+            --pr "${{ steps.target.outputs.pr }}"
+          NEW_FILES=$(git status --porcelain -- logs | awk '{print $2}' | grep -E '^logs/[0-9]{4}/.*\.md$' || true)
+          if [ -z "$NEW_FILES" ]; then
+            echo "entry_file=" >> "$GITHUB_OUTPUT"
+            echo "::notice::새 기록이 없습니다(이미 기록되었거나 생성 실패)."
+          else
+            FIRST=$(echo "$NEW_FILES" | head -n 1)
+            echo "entry_file=$FIRST" >> "$GITHUB_OUTPUT"
+            echo "::notice::기록 생성: $FIRST"
+          fi
+
+      # ------------------------------------------------------------ 커밋 & 푸시
+      - name: Commit and push
+        if: steps.gen.outputs.entry_file != ''
+        env:
+          ENTRY_FILE: ${{ steps.gen.outputs.entry_file }}
+          REPO: ${{ steps.target.outputs.repo }}
+          PR: ${{ steps.target.outputs.pr }}
+        run: |
+          set -eu
+          git config user.name  "dev-log"
+          git config user.email "dev-log@users.noreply.github.com"
+          git add logs
+          git commit -m "log(${REPO}): #${PR} $(basename "$ENTRY_FILE" .md)" \
+                     -m "자동 생성: https://github.com/${REPO}/pull/${PR}"
+          git push
+
+      # ------------------------------------------------------------ 노션
+      - name: Publish to Notion
+        # publish 입력이 none/x 면 건너뜀 (PR·dispatch 실행에는 입력이 없어 항상 실행)
+        if: steps.gen.outputs.entry_file != '' && github.event.inputs.publish != 'none' && github.event.inputs.publish != 'x'
+        continue-on-error: true
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
+        run: python3 scripts/devlog.py notion --file "${{ steps.gen.outputs.entry_file }}"
+
+      # ------------------------------------------------------------ X
+      - name: Publish to X
+        if: steps.gen.outputs.entry_file != '' && github.event.inputs.publish != 'none' && github.event.inputs.publish != 'notion'
+        continue-on-error: true
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: python3 scripts/devlog.py tweet --file "${{ steps.gen.outputs.entry_file }}"
+
+      # ------------------------------------------------------------ 요약
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### dev-log"
+            echo ""
+            echo "- 대상: \`${{ steps.target.outputs.repo }}#${{ steps.target.outputs.pr }}\`"
+            echo "- 기록: \`${{ steps.gen.outputs.entry_file || '없음' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
