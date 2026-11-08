@@ -7,7 +7,9 @@ name: auto-devlog
 # (이 저장소를 만든 도구의 토큰에 Actions 파일 쓰기 권한이 없어 이 한 파일만 직접 옮겨야 합니다)
 # ────────────────────────────────────────────────────────────────
 # 실행 경로 4가지
-#   1) 매일 23:00 KST 정기 스캔 (schedule) — 내 모든 레포의 최근 머지 PR을 훑어 새것만 기록
+#   1) 15분마다 정기 스캔 (schedule) — 내 모든 레포의 최근 머지 PR을 훑어 새것만 기록·전파
+#      머지 후 15분 이내에 자동 감지됩니다. 23:00 KST 시각도 15분 배수라 함께 돌아
+#      하루치 최종 정산 역할도 그대로 합니다.
 #   2) 이 저장소(dev-log)의 PR이 머지됐을 때
 #   3) 다른 프로젝트 레포가 repository_dispatch(devlog)로 호출했을 때
 #      (templates/target-repo-workflow.yml 을 그 레포에 붙이면 자동)
@@ -19,7 +21,7 @@ name: auto-devlog
 
 on:
   schedule:
-    - cron: '0 14 * * *'          # 매일 23:00 KST (UTC 14:00)
+    - cron: '*/15 * * * *'        # 15분마다 자동 감지 및 전파 (UTC = KST 동일 분)
   pull_request:
     types: [closed]
   repository_dispatch:
