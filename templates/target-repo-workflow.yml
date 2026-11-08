@@ -1,0 +1,40 @@
+# 프로젝트 레포에 복사해서 쓰는 트리거 워크플로우
+#
+# 사용법
+#   1. 이 파일을 감시할 프로젝트 레포의 `.github/workflows/devlog-dispatch.yml` 로 복사
+#   2. 그 레포의 Settings → Secrets and variables → Actions 에 DEVLOG_DISPATCH_TOKEN 등록
+#      (dev-log 레포에 contents: write 권한이 있는 PAT 또는 fine-grained token)
+#   3. 끝. PR이 머지될 때마다 dev-log 저장소의 auto-devlog 워크플로우가 실행됩니다.
+#
+# 주의
+#   - `peter-evans/repository-dispatch` 대신 curl 로 보내도 됩니다(아래 주석 참고).
+
+name: devlog-dispatch
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  dispatch:
+    # 머지된 PR만 (닫기만 한 PR은 기록하지 않음)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch to dev-log
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DEVLOG_DISPATCH_TOKEN }}
+          repository: lee090626/dev-log
+          event-type: devlog
+          client-payload: >-
+            {"source_repo":"${{ github.repository }}","pr_number":"${{ github.event.pull_request.number }}"}
+
+      # curl 로 보내는 경우 위 step 대신:
+      # - name: Dispatch to dev-log
+      #   run: |
+      #     curl -sS -X POST \
+      #       -H "Authorization: Bearer ${{ secrets.DEVLOG_DISPATCH_TOKEN }}" \
+      #       -H "Accept: application/vnd.github+json" \
+      #       https://api.github.com/repos/lee090626/dev-log/dispatches \
+      #       -d "{\"event_type\":\"devlog\",\"client_payload\":{\"source_repo\":\"${{ github.repository }}\",\"pr_number\":\"${{ github.event.pull_request.number }}\"}}"
