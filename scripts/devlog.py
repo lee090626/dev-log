@@ -109,8 +109,11 @@ def fetch_pr(repo: str, number: str, token: str | None) -> dict:
             break
         page += 1
     commits = github_api(f"/repos/{repo}/pulls/{number}/commits?per_page=100", token)
+    base_repo = (pr.get("base") or {}).get("repo") or {}
+    is_private = bool(base_repo.get("private", False))
     return {
         "repo": repo,
+        "private": is_private,
         "number": str(pr.get("number", number)),
         "title": pr.get("title") or "",
         "body": pr.get("body") or "",
@@ -495,6 +498,8 @@ def render_entry(pr: dict, summary: dict, tech: list[str], date: str, generated:
     parts.append(f"generated: {generated}")
     if pr.get("merged_at"):
         parts.append(f"merged_at: {pr['merged_at']}")
+    if pr.get("private"):
+        parts.append("private: true")
     parts.append("---")
     parts.append("")
     parts.append(f"# {title}")
@@ -714,6 +719,9 @@ def cmd_scan(args) -> int:
             except RuntimeError as exc:
                 problems.append(f"{label} 노션 전파 실패: {exc}")
         if do_x:
+            if detail.get("private"):
+                notes.append(f"{label}: 비공개(Private) 레포지토리이므로 X 트윗 건너뜀")
+                continue
             if published["x"] >= args.max_publish:
                 notes.append(f"{label}: X 전파 상한({args.max_publish}건)에 걸려 트윗 없이 기록만 남김")
                 continue
@@ -922,6 +930,8 @@ def build_tweet(meta: dict, title: str, body: str, max_len: int = 275) -> str:
 def publish_tweet(path: Path, dry_run: bool = False) -> tuple[bool, str]:
     """기록을 X 1줄 요약으로 올린다. (전파함?, 메시지·본문)"""
     meta, title, body = read_entry(path)
+    if str(meta.get("private", "")).lower() in ("true", "1", "yes"):
+        return False, f"[devlog] {meta.get('project', path.name)}: 비공개(Private) 레포지토리이므로 X 트윗을 건너뜁니다."
     text = build_tweet(meta, title, body)
     if dry_run:
         return False, text
