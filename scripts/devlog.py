@@ -835,27 +835,119 @@ def read_entry(path: Path) -> tuple[dict, str, str]:
     return meta, title, body
 
 
+def split_into_toggles(body: str) -> list[dict]:
+    """본문을 개요, 트러블슈팅, 변경 파일 및 커밋 3대 접이식 토글 헤딩으로 묶는다."""
+    sections: dict[str, list[str]] = {
+        "개요": [],
+        "트러블슈팅": [],
+        "변경": []
+    }
+    current = "개요"
+    for line in body.splitlines():
+        if line.startswith("## "):
+            sec_name = line[3:].strip()
+            if "트러블슈팅" in sec_name:
+                current = "트러블슈팅"
+            elif "변경 파일" in sec_name or "커밋" in sec_name:
+                current = "변경"
+            elif "개요" in sec_name or "주요 기능" in sec_name or "사용 기술" in sec_name:
+                current = "개요"
+        sections[current].append(line)
+
+    toggles = []
+    configs = [
+        ("개요", "📋 개요 및 주요 변경 사항"),
+        ("트러블슈팅", "💡 핵심 트러블슈팅 (원인 & 해결)"),
+        ("변경", "📦 변경 파일 및 커밋 요약"),
+    ]
+    for key, title in configs:
+        lines = sections.get(key, [])
+        if not lines:
+            continue
+        text = "\n".join(lines).strip()
+        sub_blocks = md_to_blocks(text, limit=40)
+        if not sub_blocks:
+            continue
+        toggles.append({
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [rt(title)],
+                "is_toggleable": True,
+                "children": sub_blocks
+            }
+        })
+    return toggles
+
+
 def publish_notion(path: Path, page_id: str | None = None,
                    dry_run: bool = False) -> tuple[bool, str]:
-    """기록 파일을 노션 페이지 아래에 블록으로 붙인다. (전파함?, 메시지)"""
+    """기록 파일을 노션에 하위 페이지(Subpage) 또는 DB 행으로 생성하며 내부는 토글로 접는다."""
     token = env("NOTION_TOKEN")
     page_id = page_id or env("NOTION_PAGE_ID")
-    meta, title, body = read_entry(path)
-    blocks = [{"object": "block", "type": "heading_1", "heading_1": {"rich_text": [rt(title)]}},
-              {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [rt(
-                  f"{meta.get('project', '')} · PR #{meta.get('pr', '')} · {meta.get('date', '')} · "
-                  f"{meta.get('source', '')}")]}},
-              {"object": "block", "type": "divider", "divider": {}}]
-    blocks += md_to_blocks(body, limit=80)
-    if dry_run:
-        return False, f"[dry-run] 블록 {len(blocks)}개를 {page_id or 'NOTION_PAGE_ID'}에 추가 예정"
     if not token or not page_id:
         return False, "[devlog] NOTION_TOKEN 또는 NOTION_PAGE_ID 가 없어 노션 전파를 건너뜁니다."
-    status, _ = http_json(
-        "PATCH", f"https://api.notion.com/v1/blocks/{page_id}/children", token,
-        {"children": blocks},
-        {"Notion-Version": "2022-06-28"})
-    return True, f"[devlog] 노션 블록 {len(blocks)}개 추가 (HTTP {status})"
+    meta, title, body = read_entry(path)
+    is_private = str(meta.get("private", "")).lower() in ("true", "1", "yes")
+
+    # 상단 요약 콜아웃
+    callout = {
+        "object": "block",
+        "type": "callout",
+        "callout": {
+            "icon": {"type": "emoji", "emoji": "🔒" if is_private else "🌐"},
+            "rich_text": [rt(
+                f"{meta.get('project', '')} · PR #{meta.get('pr', '')} · {meta.get('date', '')} · "
+                f"[{'Private' if is_private else 'Public'}]\n"
+                f"🔗 {meta.get('source', '')}"
+            )]
+        }
+    }
+    toggles = split_into_toggles(body)
+    children = [callout] + toggles
+
+    if dry_run:
+        return False, f"[dry-run] 노션 새 페이지를 {page_id}에 생성 예정 (토글 {len(toggles)}개)"
+
+    # 1. DB Row 생성 시도 (page_id가 데이터베이스인 경우)
+    tags = [t.strip() for t in meta.get("tags", "").strip("[]").split(",") if t.strip()]
+    db_payload = {
+        "parent": {"database_id": page_id},
+        "properties": {
+            "제목": {"title": [rt(title)]},
+            "프로젝트": {"select": {"name": (meta.get("project") or "etc")[:100]}},
+            "PR": {"rich_text": [rt(f"#{meta.get('pr', '')}")]},
+            "날짜": {"date": {"start": meta.get("date") or time.strftime("%Y-%m-%d")}},
+            "공개": {"select": {"name": "Private" if is_private else "Public"}},
+            "태그": {"multi_select": [{"name": t[:100].replace(",", "")} for t in tags[:10]]},
+        },
+        "children": children
+    }
+    if meta.get("source"):
+        db_payload["properties"]["링크"] = {"url": meta["source"][:2000]}
+
+    status, res = http_json("POST", "https://api.notion.com/v1/pages", token, db_payload, {"Notion-Version": "2022-06-28"})
+    if status in (200, 201):
+        return True, f"[devlog] 노션 DB 새 행 생성 성공 (HTTP {status}) {res.get('url', '')}"
+
+    # 2. Page 아래에 하위 페이지(Subpage)로 생성 (parent: page_id)
+    subpage_title = f"[{meta.get('project', '')} #{meta.get('pr', '')}] {title} ({meta.get('date', '')})"
+    page_payload = {
+        "parent": {"page_id": page_id},
+        "properties": {
+            "title": [rt(subpage_title)]
+        },
+        "icon": {"type": "emoji", "emoji": "🔒" if is_private else "🚀"},
+        "children": children
+    }
+    status, res = http_json("POST", "https://api.notion.com/v1/pages", token, page_payload, {"Notion-Version": "2022-06-28"})
+    if status in (200, 201):
+        return True, f"[devlog] 노션 하위 페이지 생성 성공 (HTTP {status}) {res.get('url', '')}"
+
+    # 3. 최후의 fallback: 블록 append
+    blocks = [{"object": "block", "type": "heading_1", "heading_1": {"rich_text": [rt(title)]}}, callout] + toggles
+    status, _ = http_json("PATCH", f"https://api.notion.com/v1/blocks/{page_id}/children", token, {"children": blocks}, {"Notion-Version": "2022-06-28"})
+    return True, f"[devlog] 노션 블록 fallback 추가 (HTTP {status})"
 
 
 def cmd_notion(args) -> int:
