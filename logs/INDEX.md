@@ -45,6 +45,7 @@
 | 2026-09-15 | daeso-live-web | PR #3 · 자동 | [2026-09-15-pr-3-proxy-api-requests-for-aid-deployment.md](2026/2026-09-15-pr-3-proxy-api-requests-for-aid-deployment.md) |
 | 2026-09-16 | part-trip-web | PR #26 · 자동 | [2026-09-16-pr-26-카카오-중심-소셜-인증으로-회원-흐름-전환.md](2026/2026-09-16-pr-26-카카오-중심-소셜-인증으로-회원-흐름-전환.md) |
 | 2026-09-17 | dodamdodam-web | PR #209 · 자동 | [2026-09-17-pr-209-외박-관리-이전-날짜-조회-지원.md](2026/2026-09-17-pr-209-외박-관리-이전-날짜-조회-지원.md) |
+| 2026-11-09 | pixelrefinery-tools | PR #6 · 자동 | [2026-11-09-pr-6-add-aseprite-authoring-runner.md](2026/2026-11-09-pr-6-add-aseprite-authoring-runner.md) |
 
 ## 읽는 법
 
