@@ -47,6 +47,7 @@
 | 2026-09-17 | dodamdodam-web | PR #209 · 자동 | [2026-09-17-pr-209-외박-관리-이전-날짜-조회-지원.md](2026/2026-09-17-pr-209-외박-관리-이전-날짜-조회-지원.md) |
 | 2026-11-09 | pixelrefinery-tools | PR #6 · 자동 | [2026-11-09-pr-6-add-aseprite-authoring-runner.md](2026/2026-11-09-pr-6-add-aseprite-authoring-runner.md) |
 | 2026-11-09 | synthetix | PR #2 · 자동 | [2026-11-09-pr-2-main에-현재-변경사항-반영-1.md](2026/2026-11-09-pr-2-main에-현재-변경사항-반영-1.md) |
+| 2026-11-10 | synthetix | PR #3 · 자동 | [2026-11-10-pr-3-정책-계산기-예제와-build-emit-js-출력-추가.md](2026/2026-11-10-pr-3-정책-계산기-예제와-build-emit-js-출력-추가.md) |
 
 ## 읽는 법
 
