@@ -49,6 +49,12 @@
 | 2026-11-09 | synthetix | PR #2 · 자동 | [2026-11-09-pr-2-main에-현재-변경사항-반영-1.md](2026/2026-11-09-pr-2-main에-현재-변경사항-반영-1.md) |
 | 2026-11-10 | synthetix | PR #3 · 자동 | [2026-11-10-pr-3-정책-계산기-예제와-build-emit-js-출력-추가.md](2026/2026-11-10-pr-3-정책-계산기-예제와-build-emit-js-출력-추가.md) |
 | 2026-11-10 | pixelrefinery-tools | PR #8 · 자동 | [2026-11-10-pr-8-define-item-icon-quality-baseline.md](2026/2026-11-10-pr-8-define-item-icon-quality-baseline.md) |
+| 2026-11-10 | pixelrefinery-tools | PR #9 · 자동 | [2026-11-10-pr-9-add-iconkit-procedural-icon-parts.md](2026/2026-11-10-pr-9-add-iconkit-procedural-icon-parts.md) |
+| 2026-11-10 | synthetix | PR #6 · 자동 | [2026-11-10-pr-6-ci-pr과-develop-main-push에-fmt-테스트-체크-추가.md](2026/2026-11-10-pr-6-ci-pr과-develop-main-push에-fmt-테스트-체크-추가.md) |
+| 2026-11-10 | synthetix | PR #4 · 자동 | [2026-11-10-pr-4-프로젝트-빌드에-emit-js-연결.md](2026/2026-11-10-pr-4-프로젝트-빌드에-emit-js-연결.md) |
+| 2026-11-10 | synthetix | PR #5 · 자동 | [2026-11-10-pr-5-graphify-산출물을-저장소-ignore에-추가.md](2026/2026-11-10-pr-5-graphify-산출물을-저장소-ignore에-추가.md) |
+| 2026-11-10 | tiket | PR #2 · 자동 | [2026-11-10-pr-2-공연-crud-구현.md](2026/2026-11-10-pr-2-공연-crud-구현.md) |
+| 2026-11-10 | synthetix | PR #7 · 자동 | [2026-11-10-pr-7-ci-rust-cache로-캐시-크기-축소-develop에서만-저장.md](2026/2026-11-10-pr-7-ci-rust-cache로-캐시-크기-축소-develop에서만-저장.md) |
 
 ## 읽는 법
 
