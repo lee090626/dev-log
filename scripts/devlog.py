@@ -909,7 +909,24 @@ def publish_notion(path: Path, page_id: str | None = None,
     if dry_run:
         return False, f"[dry-run] 노션 새 페이지를 {page_id}에 생성 예정 (토글 {len(toggles)}개)"
 
-    # 1. DB Row 생성 시도 (page_id가 데이터베이스인 경우)
+    # 1. Page 아래에 하위 페이지(Subpage)로 생성 시도 (parent: page_id)
+    subpage_title = f"[{meta.get('project', '')} #{meta.get('pr', '')}] {title} ({meta.get('date', '')})"
+    page_payload = {
+        "parent": {"page_id": page_id},
+        "properties": {
+            "title": {"title": [rt(subpage_title)]}
+        },
+        "icon": {"type": "emoji", "emoji": "🔒" if is_private else "🚀"},
+        "children": children
+    }
+    try:
+        status, res = http_json("POST", "https://api.notion.com/v1/pages", token, page_payload, {"Notion-Version": "2022-06-28"})
+        if status in (200, 201):
+            return True, f"[devlog] 노션 하위 페이지 생성 성공 (HTTP {status}) {res.get('url', '')}"
+    except Exception:
+        pass
+
+    # 2. DB Row 생성 시도 (page_id가 데이터베이스인 경우)
     tags = [t.strip() for t in meta.get("tags", "").strip("[]").split(",") if t.strip()]
     db_payload = {
         "parent": {"database_id": page_id},
@@ -926,28 +943,20 @@ def publish_notion(path: Path, page_id: str | None = None,
     if meta.get("source"):
         db_payload["properties"]["링크"] = {"url": meta["source"][:2000]}
 
-    status, res = http_json("POST", "https://api.notion.com/v1/pages", token, db_payload, {"Notion-Version": "2022-06-28"})
-    if status in (200, 201):
-        return True, f"[devlog] 노션 DB 새 행 생성 성공 (HTTP {status}) {res.get('url', '')}"
-
-    # 2. Page 아래에 하위 페이지(Subpage)로 생성 (parent: page_id)
-    subpage_title = f"[{meta.get('project', '')} #{meta.get('pr', '')}] {title} ({meta.get('date', '')})"
-    page_payload = {
-        "parent": {"page_id": page_id},
-        "properties": {
-            "title": [rt(subpage_title)]
-        },
-        "icon": {"type": "emoji", "emoji": "🔒" if is_private else "🚀"},
-        "children": children
-    }
-    status, res = http_json("POST", "https://api.notion.com/v1/pages", token, page_payload, {"Notion-Version": "2022-06-28"})
-    if status in (200, 201):
-        return True, f"[devlog] 노션 하위 페이지 생성 성공 (HTTP {status}) {res.get('url', '')}"
+    try:
+        status, res = http_json("POST", "https://api.notion.com/v1/pages", token, db_payload, {"Notion-Version": "2022-06-28"})
+        if status in (200, 201):
+            return True, f"[devlog] 노션 DB 새 행 생성 성공 (HTTP {status}) {res.get('url', '')}"
+    except Exception:
+        pass
 
     # 3. 최후의 fallback: 블록 append
     blocks = [{"object": "block", "type": "heading_1", "heading_1": {"rich_text": [rt(title)]}}, callout] + toggles
-    status, _ = http_json("PATCH", f"https://api.notion.com/v1/blocks/{page_id}/children", token, {"children": blocks}, {"Notion-Version": "2022-06-28"})
-    return True, f"[devlog] 노션 블록 fallback 추가 (HTTP {status})"
+    try:
+        status, _ = http_json("PATCH", f"https://api.notion.com/v1/blocks/{page_id}/children", token, {"children": blocks}, {"Notion-Version": "2022-06-28"})
+        return True, f"[devlog] 노션 블록 fallback 추가 (HTTP {status})"
+    except Exception as exc:
+        return False, f"[devlog] 노션 전파 실패: {exc}"
 
 
 def cmd_notion(args) -> int:
