@@ -48,6 +48,7 @@
 | 2026-11-09 | pixelrefinery-tools | PR #6 · 자동 | [2026-11-09-pr-6-add-aseprite-authoring-runner.md](2026/2026-11-09-pr-6-add-aseprite-authoring-runner.md) |
 | 2026-11-09 | synthetix | PR #2 · 자동 | [2026-11-09-pr-2-main에-현재-변경사항-반영-1.md](2026/2026-11-09-pr-2-main에-현재-변경사항-반영-1.md) |
 | 2026-11-10 | synthetix | PR #3 · 자동 | [2026-11-10-pr-3-정책-계산기-예제와-build-emit-js-출력-추가.md](2026/2026-11-10-pr-3-정책-계산기-예제와-build-emit-js-출력-추가.md) |
+| 2026-11-10 | pixelrefinery-tools | PR #8 · 자동 | [2026-11-10-pr-8-define-item-icon-quality-baseline.md](2026/2026-11-10-pr-8-define-item-icon-quality-baseline.md) |
 
 ## 읽는 법
 
