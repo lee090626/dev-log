@@ -100,6 +100,8 @@
 | 2026-11-13 | synthetix | PR #60 · 자동 | [2026-11-13-pr-60-숫자-형식-섞기-소수-round-mod-음수-round-자리수-변환.md](2026/2026-11-13-pr-60-숫자-형식-섞기-소수-round-mod-음수-round-자리수-변환.md) |
 | 2026-11-13 | synthetix | PR #63 · 자동 | [2026-11-13-pr-63-ci-npm-vscode-marketplace-배포-추가.md](2026/2026-11-13-pr-63-ci-npm-vscode-marketplace-배포-추가.md) |
 | 2026-11-13 | synthetix | PR #65 · 자동 | [2026-11-13-pr-65-페이지-문법-ask-for-when-is-clicked-블록.md](2026/2026-11-13-pr-65-페이지-문법-ask-for-when-is-clicked-블록.md) |
+| 2026-11-13 | travel-discovery | PR #15 · 자동 | [2026-11-13-pr-15-add-canonical-url-to-home-page.md](2026/2026-11-13-pr-15-add-canonical-url-to-home-page.md) |
+| 2026-11-13 | travel-discovery | PR #16 · 자동 | [2026-11-13-pr-16-link-related-places-and-collections-from.md](2026/2026-11-13-pr-16-link-related-places-and-collections-from.md) |
 
 ## 읽는 법
 
