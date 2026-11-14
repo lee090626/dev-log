@@ -103,6 +103,13 @@
 | 2026-11-13 | travel-discovery | PR #15 · 자동 | [2026-11-13-pr-15-add-canonical-url-to-home-page.md](2026/2026-11-13-pr-15-add-canonical-url-to-home-page.md) |
 | 2026-11-13 | travel-discovery | PR #16 · 자동 | [2026-11-13-pr-16-link-related-places-and-collections-from.md](2026/2026-11-13-pr-16-link-related-places-and-collections-from.md) |
 | 2026-11-14 | synthetix | PR #67 · 자동 | [2026-11-14-pr-67-ci-npm-배포를-trusted-publishing-oidc-으로-전환.md](2026/2026-11-14-pr-67-ci-npm-배포를-trusted-publishing-oidc-으로-전환.md) |
+| 2026-11-14 | synthetix | PR #69 · 자동 | [2026-11-14-pr-69-win32-패키지를-scoped-이름으로-변경.md](2026/2026-11-14-pr-69-win32-패키지를-scoped-이름으로-변경.md) |
+| 2026-11-14 | synthetix | PR #71 · 자동 | [2026-11-14-pr-71-publisher를-synthetix-lang으로-변경.md](2026/2026-11-14-pr-71-publisher를-synthetix-lang으로-변경.md) |
+| 2026-11-14 | synthetix | PR #73 · 자동 | [2026-11-14-pr-73-ci-vsce-pat-없으면-marketplace-배포-건너뛰기.md](2026/2026-11-14-pr-73-ci-vsce-pat-없으면-marketplace-배포-건너뛰기.md) |
+| 2026-11-14 | synthetix | PR #75 · 자동 | [2026-11-14-pr-75-ci-open-vsx-배포-추가.md](2026/2026-11-14-pr-75-ci-open-vsx-배포-추가.md) |
+| 2026-11-14 | synthetix | PR #77 · 자동 | [2026-11-14-pr-77-mit-or-apache-2-0-라이선스-지정.md](2026/2026-11-14-pr-77-mit-or-apache-2-0-라이선스-지정.md) |
+| 2026-11-14 | synthetix | PR #79 · 자동 | [2026-11-14-pr-79-vscode-확장-0-15-0.md](2026/2026-11-14-pr-79-vscode-확장-0-15-0.md) |
+| 2026-11-14 | synthetix | PR #80 · 자동 | [2026-11-14-pr-80-is-비교-규칙-호출-범위-show-계산식.md](2026/2026-11-14-pr-80-is-비교-규칙-호출-범위-show-계산식.md) |
 
 ## 읽는 법
 
