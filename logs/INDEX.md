@@ -102,6 +102,7 @@
 | 2026-11-13 | synthetix | PR #65 · 자동 | [2026-11-13-pr-65-페이지-문법-ask-for-when-is-clicked-블록.md](2026/2026-11-13-pr-65-페이지-문법-ask-for-when-is-clicked-블록.md) |
 | 2026-11-13 | travel-discovery | PR #15 · 자동 | [2026-11-13-pr-15-add-canonical-url-to-home-page.md](2026/2026-11-13-pr-15-add-canonical-url-to-home-page.md) |
 | 2026-11-13 | travel-discovery | PR #16 · 자동 | [2026-11-13-pr-16-link-related-places-and-collections-from.md](2026/2026-11-13-pr-16-link-related-places-and-collections-from.md) |
+| 2026-11-14 | synthetix | PR #67 · 자동 | [2026-11-14-pr-67-ci-npm-배포를-trusted-publishing-oidc-으로-전환.md](2026/2026-11-14-pr-67-ci-npm-배포를-trusted-publishing-oidc-으로-전환.md) |
 
 ## 읽는 법
 
