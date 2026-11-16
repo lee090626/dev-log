@@ -112,6 +112,12 @@
 | 2026-11-14 | synthetix | PR #80 · 자동 | [2026-11-14-pr-80-is-비교-규칙-호출-범위-show-계산식.md](2026/2026-11-14-pr-80-is-비교-규칙-호출-범위-show-계산식.md) |
 | 2026-11-15 | Figma-Token-Exporter | PR #2 · 자동 | [2026-11-15-pr-2-drift-ci-검사와-대기-명단-1.md](2026/2026-11-15-pr-2-drift-ci-검사와-대기-명단-1.md) |
 | 2026-11-15 | Figma-Token-Exporter | PR #4 · 자동 | [2026-11-15-pr-4-저장소-이름-반영과-release-자동화-3.md](2026/2026-11-15-pr-4-저장소-이름-반영과-release-자동화-3.md) |
+| 2026-11-16 | travel-discovery | PR #17 · 자동 | [2026-11-16-pr-17-render-all-showmore-items-in-html-and-re.md](2026/2026-11-16-pr-17-render-all-showmore-items-in-html-and-re.md) |
+| 2026-11-16 | synthetix | PR #82 · 자동 | [2026-11-16-pr-82-런타임-상태를-명시적으로-노출.md](2026/2026-11-16-pr-82-런타임-상태를-명시적으로-노출.md) |
+| 2026-11-16 | travel-discovery | PR #18 · 자동 | [2026-11-16-pr-18-show-the-search-form-while-search-result.md](2026/2026-11-16-pr-18-show-the-search-form-while-search-result.md) |
+| 2026-11-16 | travel-discovery | PR #19 · 자동 | [2026-11-16-pr-19-share-one-theme-listing-threshold-across.md](2026/2026-11-16-pr-19-share-one-theme-listing-threshold-across.md) |
+| 2026-11-16 | travel-discovery | PR #20 · 자동 | [2026-11-16-pr-20-document-the-place-lifecycle-and-log-it.md](2026/2026-11-16-pr-20-document-the-place-lifecycle-and-log-it.md) |
+| 2026-11-16 | travel-discovery | PR #21 · 자동 | [2026-11-16-pr-21-warn-when-building-without-a-valid-site.md](2026/2026-11-16-pr-21-warn-when-building-without-a-valid-site.md) |
 
 ## 읽는 법
 
