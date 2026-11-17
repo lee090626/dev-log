@@ -118,6 +118,15 @@
 | 2026-11-16 | travel-discovery | PR #19 · 자동 | [2026-11-16-pr-19-share-one-theme-listing-threshold-across.md](2026/2026-11-16-pr-19-share-one-theme-listing-threshold-across.md) |
 | 2026-11-16 | travel-discovery | PR #20 · 자동 | [2026-11-16-pr-20-document-the-place-lifecycle-and-log-it.md](2026/2026-11-16-pr-20-document-the-place-lifecycle-and-log-it.md) |
 | 2026-11-16 | travel-discovery | PR #21 · 자동 | [2026-11-16-pr-21-warn-when-building-without-a-valid-site.md](2026/2026-11-16-pr-21-warn-when-building-without-a-valid-site.md) |
+| 2026-11-16 | synthetix | PR #84 · 자동 | [2026-11-16-pr-84-ci-z3-소스-빌드-제거-캐시-용량-정리.md](2026/2026-11-16-pr-84-ci-z3-소스-빌드-제거-캐시-용량-정리.md) |
+| 2026-11-16 | synthetix | PR #86 · 자동 | [2026-11-16-pr-86-ci-main에서-릴리스-빌드-캐시-저장.md](2026/2026-11-16-pr-86-ci-main에서-릴리스-빌드-캐시-저장.md) |
+| 2026-11-16 | synthetix | PR #87 · 자동 | [2026-11-16-pr-87-develop을-main에-반영.md](2026/2026-11-16-pr-87-develop을-main에-반영.md) |
+| 2026-11-16 | travel-discovery | PR #22 · 자동 | [2026-11-16-pr-22-point-domain-docs-at-docs-glossary-md.md](2026/2026-11-16-pr-22-point-domain-docs-at-docs-glossary-md.md) |
+| 2026-11-16 | travel-discovery | PR #26 · 자동 | [2026-11-16-pr-26-show-every-showmore-item-when-javascript.md](2026/2026-11-16-pr-26-show-every-showmore-item-when-javascript.md) |
+| 2026-11-17 | travel-discovery | PR #27 · 자동 | [2026-11-17-pr-27-explain-search-needs-javascript-and-link.md](2026/2026-11-17-pr-27-explain-search-needs-javascript-and-link.md) |
+| 2026-11-17 | travel-discovery | PR #28 · 자동 | [2026-11-17-pr-28-redeploy-daily-even-when-the-data-fetch.md](2026/2026-11-17-pr-28-redeploy-daily-even-when-the-data-fetch.md) |
+| 2026-11-17 | synthetix | PR #91 · 자동 | [2026-11-17-pr-91-문법-오류-위치와-cli-도움말-바로잡기.md](2026/2026-11-17-pr-91-문법-오류-위치와-cli-도움말-바로잡기.md) |
+| 2026-11-17 | synthetix | PR #92 · 자동 | [2026-11-17-pr-92-다른-서버가-쓰는-포트에-함께-뜨지-않기.md](2026/2026-11-17-pr-92-다른-서버가-쓰는-포트에-함께-뜨지-않기.md) |
 
 ## 읽는 법
 
